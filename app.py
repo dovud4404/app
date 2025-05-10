@@ -8,7 +8,7 @@ from telegram.ext import (
     ConversationHandler, filters, ContextTypes,
 )
 
-# ─── ENV ──────────────────────────────────────────────────────────────
+# ── ENV ───────────────────────────────────────────────────────────────
 BOT_TOKEN      = os.environ["BOT_TOKEN"]
 GROUP_CHAT_ID  = int(os.environ["GROUP_CHAT_ID"])
 EXTERNAL_URL   = os.environ["RENDER_EXTERNAL_URL"].rstrip("/")
@@ -18,12 +18,13 @@ PHONE_RE = re.compile(r"^\+?\d[\d\s\-\(\)]{7,}$")
 NAME, PHONE, COMMENT = range(3)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# ─── Flask и Telegram-Application ─────────────────────────────────────
+# ── Flask & Telegram Application ──────────────────────────────────────
 flask_app = Flask(__name__)
+loop      = asyncio.get_event_loop()
 tg_app    = Application.builder().token(BOT_TOKEN).build()
 bot       = tg_app.bot
 
-# ─── Bot handlers ─────────────────────────────────────────────────────
+# ── Bot Handlers ───────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("🍰 Добро пожаловать! Как вас зовут?",
                                     reply_markup=ReplyKeyboardRemove())
@@ -46,13 +47,13 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     d = context.user_data
     d["comment"] = update.message.text.strip()
-    msg = (
+    txt = (
         "🎂 <b>Новый заказ!</b>\n\n"
         f"<b>Имя:</b> {html.escape(d['name'])}\n"
         f"<b>Телефон:</b> {html.escape(d['phone'])}\n"
         f"<b>Комментарий:</b> {html.escape(d['comment'])}"
     )
-    await bot.send_message(GROUP_CHAT_ID, msg, parse_mode=ParseMode.HTML)
+    await bot.send_message(GROUP_CHAT_ID, txt, parse_mode=ParseMode.HTML)
     await update.message.reply_text("Спасибо! Заказ принят ✅")
     return ConversationHandler.END
 
@@ -71,27 +72,27 @@ conv = ConversationHandler(
 )
 tg_app.add_handler(conv)
 
-# ─── Однократная инициализация бота и вебхука ─────────────────────────
+# ── Инициализация бота и webhook (один раз) ───────────────────────────
 async def _boot():
     await tg_app.initialize()
     await tg_app.start()
     hook = f"{EXTERNAL_URL}/{BOT_TOKEN}"
     await bot.set_webhook(hook)
     logging.info("Webhook установлен → %s", hook)
+loop.run_until_complete(_boot())
 
-asyncio.get_event_loop().run_until_complete(_boot())
-
-# ─── Flask routes ─────────────────────────────────────────────────────
+# ── Flask routes (SYNC) ────────────────────────────────────────────────
 @flask_app.route(f"/{BOT_TOKEN}", methods=["POST"])
-async def telegram_webhook():
+def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    await tg_app.process_update(update)
+    # пускаем обработку в event-loop, не блокируя Flask
+    asyncio.run_coroutine_threadsafe(tg_app.process_update(update), loop)
     return "OK", 200
 
 @flask_app.route("/health")
 def health():
     return "OK", 200
 
-# ─── Локальный запуск (Render использует gunicorn) ────────────────────
+# ── Локальный запуск (Render использует gunicorn) ──────────────────────
 if __name__ == "__main__":
     flask_app.run(host="0.0.0.0", port=PORT)
