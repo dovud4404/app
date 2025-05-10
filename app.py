@@ -4,41 +4,34 @@ from flask import Flask, request
 from telegram import Bot, Update, ReplyKeyboardRemove
 from telegram.constants import ParseMode
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    ConversationHandler,
-    filters,
-    ContextTypes,
+    Application, CommandHandler, MessageHandler,
+    ConversationHandler, filters, ContextTypes,
 )
 
-# ─── Конфиг ──────────────────────────────────────────────────────────────────
+# ─── ENV ──────────────────────────────────────────────────────────────
 BOT_TOKEN      = os.environ["BOT_TOKEN"]
 GROUP_CHAT_ID  = int(os.environ["GROUP_CHAT_ID"])
-EXTERNAL_URL   = os.environ["RENDER_EXTERNAL_URL"].rstrip("/")
-PORT           = int(os.environ.get("PORT", "8443"))
+EXTERNAL_URL   = os.environ["RENDER_EXTERNAL_URL"].rstrip("/")   # https://biscuit-bot.onrender.com
+PORT           = int(os.environ.get("PORT", "8443"))            # Render подставит, напр. 10000
 
 PHONE_RE = re.compile(r"^\+?\d[\d\s\-\(\)]{7,}$")
 NAME, PHONE, COMMENT = range(3)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# ─── Flask и Telegram-Application ────────────────────────────────────────────
+# ─── Flask + Telegram Application ────────────────────────────────────
 flask_app = Flask(__name__)
-tg_app    = Application.builder().token(BOT_TOKEN).build()   # ← вместо Dispatcher
+tg_app    = Application.builder().token(BOT_TOKEN).build()
 bot       = tg_app.bot
 
-# ─── Хэндлеры бота ────────────────────────────────────────────────────────────
+# ─── Bot handlers ────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text(
-        "🍰 Добро пожаловать! Как вас зовут?",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("🍰 Добро пожаловать! Как вас зовут?", reply_markup=ReplyKeyboardRemove())
     return NAME
 
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["name"] = update.message.text.strip()
-    await update.message.reply_text("📞 Ваш номер телефона:")
+    await update.message.reply_text("📞 Укажите номер телефона:")
     return PHONE
 
 async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -47,7 +40,7 @@ async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("❗ Некорректный номер, попробуйте ещё раз:")
         return PHONE
     context.user_data["phone"] = phone
-    await update.message.reply_text("💬 Комментарий (вкус, дата) или «-»:")
+    await update.message.reply_text("💬 Комментарий (вкус, вес, дата) или «-»:")
     return COMMENT
 
 async def finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -55,7 +48,7 @@ async def finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     d["comment"] = update.message.text.strip()
 
     text = (
-        "🎂 <b>Новый заказ!</b>\n\n"
+        "🎂 <b>Новый заказ торта!</b>\n\n"
         f"<b>Имя:</b> {html.escape(d['name'])}\n"
         f"<b>Телефон:</b> {html.escape(d['phone'])}\n"
         f"<b>Комментарий:</b> {html.escape(d['comment'])}"
@@ -79,27 +72,26 @@ conv = ConversationHandler(
 )
 tg_app.add_handler(conv)
 
-# ─── Webhook + health ────────────────────────────────────────────────────────
-@flask_app.before_first_request
-def init_webhook():
-    """Запускается один раз при первом HTTP-запросе к Flask."""
-    async def setup():
-        await tg_app.initialize()
-        await tg_app.start()
-        await bot.set_webhook(f"{EXTERNAL_URL}/{BOT_TOKEN}")
-        logging.info("Webhook установлен: %s/%s", EXTERNAL_URL, BOT_TOKEN)
-    asyncio.get_event_loop().create_task(setup())
+# ─── Webhook setup & routes ──────────────────────────────────────────
+@flask_app.before_serving
+async def setup_webhook():
+    """Выполняется один раз при запуске приложения."""
+    await tg_app.initialize()
+    await tg_app.start()
+    webhook_url = f"{EXTERNAL_URL}/{BOT_TOKEN}"
+    await bot.set_webhook(webhook_url)
+    logging.info("Webhook установлен → %s", webhook_url)
 
 @flask_app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
+async def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), bot)
-    asyncio.get_event_loop().create_task(tg_app.process_update(update))
+    await tg_app.process_update(update)
     return "OK", 200
 
 @flask_app.route("/health", methods=["GET"])
 def health():
     return "OK", 200
 
-# ─── Запуск ───────────────────────────────────────────────────────────────────
+# ─── Launch ──────────────────────────────────────────────────────────
 if __name__ == "__main__":
     flask_app.run(host="0.0.0.0", port=PORT)
