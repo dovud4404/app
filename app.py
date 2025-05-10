@@ -39,7 +39,7 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def ask_phone(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     ctx.user_data["name"] = update.message.text.strip()
-    await update.message.reply_text("📞 Укажите ваш номпер телефона (например +992 00-000-00-00:")
+    await update.message.reply_text("📞 Укажите ваш номер телефона (например +992 000000000):
     return PHONE
 
 async def ask_comment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
