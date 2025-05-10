@@ -1,66 +1,85 @@
 #!/usr/bin/env python3
-import os, re, html, logging
+import os
+import re
+import html
+import logging
+
 from flask import Flask, request
 from telegram import Bot, Update, ReplyKeyboardRemove
 from telegram.constants import ParseMode
+from telegram.ext.dispatcher import Dispatcher
 from telegram.ext import (
-    Dispatcher, CommandHandler, MessageHandler,
-    ConversationHandler, filters, ContextTypes,
+    CommandHandler,
+    MessageHandler,
+    ConversationHandler,
+    filters,
+    ContextTypes,
 )
 
-# ───────── CONFIG ─────────────────────────────────
-BOT_TOKEN     = os.environ["BOT_TOKEN"]
-GROUP_CHAT_ID = int(os.environ["GROUP_CHAT_ID"])
-PORT          = int(os.environ["PORT"])            # <- Render сам задаёт, например 10000
-EXTERNAL_URL  = os.environ["RENDER_EXTERNAL_URL"]  # только для webhook, можно убрать
+# ─── Настройки из окружения ────────────────────────────────────────────────────
+BOT_TOKEN      = os.environ["BOT_TOKEN"]
+GROUP_CHAT_ID  = int(os.environ["GROUP_CHAT_ID"])
+EXTERNAL_URL   = os.environ["RENDER_EXTERNAL_URL"].rstrip("/")  # https://...onrender.com
+PORT           = int(os.environ.get("PORT", "8443"))
 
-# простая валидация
+# ─── Validation и States ───────────────────────────────────────────────────────
 PHONE_RE = re.compile(r"^\+?\d[\d\s\-\(\)]{7,}$")
 NAME, PHONE, COMMENT = range(3)
 
+# ─── Логирование ───────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-# ───────── SETUP FLASK & BOT ──────────────────────────
+# ─── Flask + Bot + Dispatcher ──────────────────────────────────────────────────
 app = Flask(__name__)
 bot = Bot(BOT_TOKEN)
 dp  = Dispatcher(bot, None, workers=0, use_context=True)
 
-# ───────── HANDLERS ───────────────────────────────────
+# ─── Хэндлеры ──────────────────────────────────────────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("🍰 Как вас зовут?", reply_markup=ReplyKeyboardRemove())
+    await update.message.reply_text(
+        "🍰 Добро пожаловать! Я приму ваш заказ на торт.\nКак вас зовут?",
+        reply_markup=ReplyKeyboardRemove(),
+    )
     return NAME
 
 async def ask_phone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data["name"] = update.message.text.strip()
-    await update.message.reply_text("📞 Укажите телефон:")
+    await update.message.reply_text("📞 Укажите номер телефона:")
     return PHONE
 
 async def ask_comment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     phone = update.message.text.strip()
     if not PHONE_RE.fullmatch(phone):
-        await update.message.reply_text("❗ Неправильный телефон, повторите:")
+        await update.message.reply_text("❗ Некорректный номер, попробуйте ещё раз:")
         return PHONE
     context.user_data["phone"] = phone
-    await update.message.reply_text("💬 Ваш комментарий или «-»:")
+    await update.message.reply_text("💬 Ваш комментарий (вкус, вес, дата) или «-» если без:")
     return COMMENT
 
 async def finish(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    d = context.user_data
-    d["comment"] = update.message.text.strip()
+    data = context.user_data
+    data["comment"] = update.message.text.strip()
+
+    # Экранируем пользовательский ввод
+    name    = html.escape(data["name"])
+    phone   = html.escape(data["phone"])
+    comment = html.escape(data["comment"])
+
     text = (
-        "🎂 <b>Новый заказ!</b>\n\n"
-        f"<b>Имя:</b> {html.escape(d['name'])}\n"
-        f"<b>Телефон:</b> {html.escape(d['phone'])}\n"
-        f"<b>Комментарий:</b> {html.escape(d['comment'])}"
+        "🎂 <b>Новый заказ торта!</b>\n\n"
+        f"<b>Имя:</b> {name}\n"
+        f"<b>Телефон:</b> {phone}\n"
+        f"<b>Комментарий:</b> {comment}"
     )
-    await bot.send_message(GROUP_CHAT_ID, text, parse_mode=ParseMode.HTML)
-    await update.message.reply_text("Спасибо! ✅")
+    await bot.send_message(chat_id=GROUP_CHAT_ID, text=text, parse_mode=ParseMode.HTML)
+    await update.message.reply_text("Спасибо! Ваш заказ принят ✅")
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("Отменено. /start — заново.")
+    await update.message.reply_text("Отменено. Чтобы начать заново, отправьте /start.")
     return ConversationHandler.END
 
+# Регистрируем ConversationHandler
 conv = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
     states={
@@ -72,24 +91,24 @@ conv = ConversationHandler(
 )
 dp.add_handler(conv)
 
-# ───────── WEBHOOK & HEALTHCHECK ──────────────────────
+# ─── Webhook и Health ─────────────────────────────────────────────────────────
 @app.before_first_request
-def set_webhook():
-    url = f"{EXTERNAL_URL.rstrip('/')}/{BOT_TOKEN}"
-    logging.info("Set webhook → %s", url)
-    bot.set_webhook(url)
+def setup_webhook():
+    webhook_url = f"{EXTERNAL_URL}/{BOT_TOKEN}"
+    logging.info("Устанавливаем webhook → %s", webhook_url)
+    bot.set_webhook(webhook_url)
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def webhook():
-    upd = Update.de_json(request.get_json(force=True), bot)
-    dp.process_update(upd)
+    update = Update.de_json(request.get_json(force=True), bot)
+    dp.process_update(update)
     return "OK", 200
 
 @app.route("/health", methods=["GET"])
 def health():
     return "OK", 200
 
-# ───────── RUN ─────────────────────────────────────────
+# ─── Запуск приложения ─────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # слушаем ТОЛЬКО на порту, который дал Render
+    # Слушаем тот порт, что дал Render (например, 10000)
     app.run(host="0.0.0.0", port=PORT)
