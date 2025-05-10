@@ -33,13 +33,13 @@ bot: Bot = tg_app.bot
 
 # ─── handlers ---------------------------------------------------------
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("🍰 Добро пожаловать! Как вас зовут?",
+    await update.message.reply_text("🍰 Ассаляму алейкум! Я приму ваш заказ. Как вас зовут?",
                                     reply_markup=ReplyKeyboardRemove())
     return NAME
 
 async def ask_phone(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
     ctx.user_data["name"] = update.message.text.strip()
-    await update.message.reply_text("📞 Ваш номер телефона:")
+    await update.message.reply_text("📞 Укажите ваш номпер телефона (например +992 00-000-00-00:")
     return PHONE
 
 async def ask_comment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
@@ -48,7 +48,7 @@ async def ask_comment(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         await update.message.reply_text("❗ Номер неверный, попробуйте ещё раз:")
         return PHONE
     ctx.user_data["phone"] = phone
-    await update.message.reply_text("💬 Комментарий (вкус, дата) или «-»:")
+    await update.message.reply_text("💬 Добавьте комментарий (вкус, вес, дата) или «-», если без комментариев:")
     return COMMENT
 
 async def finish(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
@@ -61,7 +61,7 @@ async def finish(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         f"<b>Комментарий:</b> {html.escape(d['comment'])}"
     )
     await bot.send_message(GROUP_CHAT_ID, txt, parse_mode=ParseMode.HTML)
-    await update.message.reply_text("Спасибо! Заказ принят ✅")
+    await update.message.reply_text("Спасибо!🎉 Ващ заказ отправлен администратору. Мы свяжемся с вами в ближайщее время ✅")
     return ConversationHandler.END
 
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
