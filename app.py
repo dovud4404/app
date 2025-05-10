@@ -7,7 +7,7 @@ import logging
 from flask import Flask, request
 from telegram import Bot, Update, ReplyKeyboardRemove
 from telegram.constants import ParseMode
-from telegram.ext.dispatcher import Dispatcher
+from telegram.ext import Dispatcher
 from telegram.ext import (
     CommandHandler,
     MessageHandler,
