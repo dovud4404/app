@@ -61,7 +61,7 @@ async def finish(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
         f"<b>Комментарий:</b> {html.escape(d['comment'])}"
     )
     await bot.send_message(GROUP_CHAT_ID, txt, parse_mode=ParseMode.HTML)
-    await update.message.reply_text("Спасибо!🎉 Ващ заказ отправлен администратору. Мы свяжемся с вами в ближайщее время ✅")
+    await update.message.reply_text("Спасибо!🎉 Ваш заказ отправлен администратору. Мы свяжемся с вами в ближайщее время ✅")
     return ConversationHandler.END
 
 async def cancel(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> int:
